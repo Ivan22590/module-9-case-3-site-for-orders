@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Админ-панель</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #f8f9fa;
+            --surface: #ffffff;
+            --text: #1a1a1a;
+            --text-secondary: #6b7280;
+            --accent: #2563eb;
+            --accent-hover: #1d4ed8;
+            --border: #e5e7eb;
+            --shadow: 0 1px 3px rgba(0,0,0,0.06);
+            --shadow-lg: 0 10px 25px rgba(0,0,0,0.08);
+            --radius: 12px;
+            --radius-sm: 8px;
+            --hot: #ef4444;
+            --warm: #f59e0b;
+            --cold: #3b82f6;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+        }
+
+        /* ─── Auth Screen ─── */
+        .auth-screen {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 24px;
+        }
+        .auth-card {
+            background: var(--surface);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow-lg);
+            padding: 40px;
+            max-width: 420px;
+            width: 100%;
+        }
+        .auth-card h1 {
+            font-size: 24px;
+            margin-bottom: 8px;
+        }
+        .auth-card p {
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-bottom: 24px;
+        }
+        .form-group {
+            margin-bottom: 16px;
+        }
+        label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            margin-bottom: 6px;
+        }
+        input, select, textarea {
+            width: 100%;
+            padding: 12px 14px;
+            border: 1.5px solid var(--border);
+            border-radius: var(--radius-sm);
+            font-family: inherit;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        input:focus, select:focus, textarea:focus {
+            border-color: var(--accent);
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
+        }
+        .btn {
+            width: 100%;
+            padding: 14px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: var(--radius-sm);
+            font-family: inherit;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-top: 8px;
+        }
+        .btn:hover { background: var(--accent-hover); }
+        .btn:disabled { background: #93c5fd; cursor: wait; }
+        .btn-secondary {
+            background: transparent;
+            color: var(--accent);
+            border: 1.5px solid var(--accent);
+        }
+        .btn-secondary:hover { background: rgba(37,99,235,0.05); }
+        .btn-danger {
+            background: #dc2626;
+        }
+        .btn-danger:hover { background: #b91c1c; }
+        .btn-sm {
+            width: auto;
+            padding: 8px 16px;
+            font-size: 13px;
+        }
+        .auth-toggle {
+            margin-top: 16px;
+            text-align: center;
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+        .auth-toggle a {
+            color: var(--accent);
+            cursor: pointer;
+            text-decoration: underline;
+        }
+        .error-msg {
+            color: #dc2626;
+            font-size: 13px;
+            margin-top: 8px;
+            display: none;
+        }
+        .status-msg {
+            margin-top: 12px;
+            padding: 12px;
+            border-radius: var(--radius-sm);
+            font-size: 14px;
+            display: none;
+        }
+        .status-msg.ok { background: #d1fae5; color: #065f46; }
+        .status-msg.err { background: #fee2e2; color: #991b1b; }
+
+        /* ─── Admin Panel ─── */
+        .admin-panel { display: none; }
+        .admin-panel.active { display: flex; min-height: 100vh; flex-direction: column; }
+        
+        .topbar {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            height: 64px;
+            gap: 24px;
+        }
+        .topbar h2 {
+            font-size: 18px;
+            font-weight: 600;
+        }
+        .tabs {
+            display: flex;
+            gap: 4px;
+            margin-left: auto;
+        }
+        .tab {
+            padding: 10px 20px;
+            border: none;
+            background: transparent;
+            border-radius: var(--radius-sm);
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .tab:hover { background: rgba(0,0,0,0.03); }
+        .tab.active { background: var(--accent); color: white; }
+        .logout-btn {
+            margin-left: 16px;
+            background: transparent;
+            border: 1.5px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 8px 16px;
+            font-family: inherit;
+            font-size: 13px;
+            cursor: pointer;
+            color: var(--text-secondary);
+        }
+        .logout-btn:hover { border-color: #dc2626; color: #dc2626; }
+
+        .content {
+            padding: 24px;
+            flex: 1;
+        }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* ─── Tables ─── */
+        .table-wrapper {
+            background: var(--surface);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            overflow-x: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        th, td {
+            padding: 14px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        th {
+            background: #f9fafb;
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        tr:hover { background: #f9fafb; }
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .badge.hot { background: #fee2e2; color: #dc2626; }
+        .badge.warm { background: #fef3c7; color: #d97706; }
+        .badge.cold { background: #dbeafe; color: #2563eb; }
+        .badge.high { background: #fee2e2; color: #dc2626; }
+        .badge.medium { background: #fef3c7; color: #d97706; }
+        .badge.low { background: #d1fae5; color: #065f46; }
+        .actions { display: flex; gap: 8px; }
+
+        /* ─── Stats Cards ─── */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: var(--surface);
+            border-radius: var(--radius);
+            padding: 20px;
+            box-shadow: var(--shadow);
+        }
+        .stat-card h3 {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+        .stat-card .value {
+            font-size: 32px;
+            font-weight: 700;
+        }
+        .stat-card .unit {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        /* ─── Heatmap ─── */
+        .heatmap-container {
+            background: var(--surface);
+            border-radius: var(--radius);
+            padding: 24px;
+            box-shadow: var(--shadow);
+        }
+        .heatmap-container h3 {
+            margin-bottom: 16px;
+        }
+        #heatmap-canvas {
+            width: 100%;
+            height: 500px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: #f9fafb;
+        }
+        .fullscreen-btn {
+            margin-top: 16px;
+        }
+
+        /* ─── Modal ─── */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: var(--surface);
+            border-radius: var(--radius);
+            padding: 32px;
+            max-width: 500px;
+            width: 100%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .modal h3 {
+            margin-bottom: 16px;
+        }
+        .modal-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+        }
+        .modal-actions .btn { flex: 1; }
+
+        /* ─── Lead Detail Modal ─── */
+        .lead-modal {
+            max-width: 720px;
+            padding: 0;
+            animation: pop-in 0.18s ease;
+        }
+        @keyframes pop-in {
+            from { opacity: 0; transform: translateY(10px) scale(0.97); }
+            to   { opacity: 1; transform: none; }
+        }
+        .modal-overlay { animation: fade-in 0.18s ease; }
+        @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+        .lead-modal-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 24px 32px 16px;
+            border-bottom: 1px solid var(--border);
+        }
+        .lead-modal-header h3 { flex: 1; }
+        .lead-modal-header .lead-badges { display: flex; gap: 8px; }
+        .lead-close {
+            border: none;
+            background: var(--bg);
+            color: var(--text-secondary);
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            font-size: 18px;
+            line-height: 1;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+            flex-shrink: 0;
+        }
+        .lead-close:hover { background: var(--border); color: var(--text); }
+
+        .lead-modal .modal-body { padding: 20px 32px; }
+        .lead-section { margin-bottom: 20px; }
+        .lead-section:last-child { margin-bottom: 0; }
+        .lead-section-title {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+        }
+        .lead-fields {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px 24px;
+        }
+        .lead-field {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 16px;
+            padding: 6px 0;
+            border-bottom: 1px dashed var(--border);
+            font-size: 14px;
+        }
+        .lead-field dt { color: var(--text-secondary); white-space: nowrap; }
+        .lead-field dd { text-align: right; font-weight: 500; word-break: break-word; }
+        .lead-field.wide { grid-column: 1 / -1; }
+        .lead-field dd .badge { margin: 0; }
+
+        .lead-reasons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+        .lead-reasons .badge { margin: 0; }
+
+        .lead-recommendation {
+            margin: 0 32px 24px;
+            padding: 14px 16px;
+            background: #f0f7ff;
+            border-left: 3px solid var(--accent);
+            border-radius: var(--radius-sm);
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        .lead-recommendation strong { display: block; margin-bottom: 2px; }
+        .lead-modal .modal-actions { padding: 0 32px 24px; margin: 0; }
+    </style>
+</head>
+<body>
+    <!-- ═══ Auth Screen ═══ -->
+    <div class="auth-screen" id="auth-screen">
+        <div class="auth-card">
+            <h1>Админ-панель</h1>
+            <p>Войдите для управления заявками и услугами</p>
+            
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="login-email">Email</label>
+                    <input type="email" id="login-email" required placeholder="admin@example.com">
+                </div>
+                <div class="form-group">
+                    <label for="login-password">Пароль</label>
+                    <input type="password" id="login-password" required placeholder="••••••••">
+                </div>
+                <button type="submit" class="btn" id="login-btn">Войти</button>
+                <div class="error-msg" id="login-error"></div>
+            </form>
+
+            <form id="register-form" style="display:none;">
+                <div class="form-group">
+                    <label for="reg-email">Email</label>
+                    <input type="email" id="reg-email" required placeholder="admin@example.com">
+                </div>
+                <div class="form-group">
+                    <label for="reg-password">Пароль (мин. 6 символов)</label>
+                    <input type="password" id="reg-password" required minlength="6" placeholder="••••••••">
+                </div>
+                <div class="form-group">
+                    <label for="reg-name">Имя (необязательно)</label>
+                    <input type="text" id="reg-name" placeholder="Иван Петров">
+                </div>
+                <button type="submit" class="btn" id="register-btn">Зарегистрироваться</button>
+                <div class="error-msg" id="register-error"></div>
+            </form>
+
+            <div class="auth-toggle" id="auth-toggle">
+                <span id="toggle-text">Нет аккаунта?</span>
+                <a id="toggle-link">Зарегистрироваться</a>
+            </div>
+            <div class="status-msg" id="auth-status"></div>
+        </div>
+    </div>
+
+    <!-- ═══ Admin Panel ═══ -->
+    <div class="admin-panel" id="admin-panel">
+        <div class="topbar">
+            <h2>Админ-панель</h2>
+            <div class="tabs">
+                <button class="tab active" data-tab="services">Услуги</button>
+                <button class="tab" data-tab="leads">Заявки</button>
+                <button class="tab" data-tab="stats">Статистика</button>
+            </div>
+            <button class="logout-btn" id="logout-btn">Выйти</button>
+        </div>
+
+        <div class="content">
+            <!-- ═══ Services Tab ═══ -->
+            <div class="tab-content active" id="tab-services">
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Название</th>
+                                <th>Описание</th>
+                                <th>Цена мин</th>
+                                <th>Цена макс</th>
+                                <th>Статус</th>
+                                <th>Действия</button>
+                            </tr>
+                        </thead>
+                        <tbody id="services-tbody"></tbody>
+                    </table>
+                </div>
+                <button class="btn btn-secondary btn-sm" style="margin-top:16px;" id="add-service-btn">+ Добавить услугу</button>
+            </div>
+
+            <!-- ═══ Leads Tab ═══ -->
+            <div class="tab-content" id="tab-leads">
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Контакт</th>
+                                <th>ФИО</th>
+                                <th>Ниша</th>
+                                <th>Бюджет</th>
+                                <th>Температура</th>
+                                <th>Срочность</th>
+                                <th>Действия</th>
+                            </tr>
+                        </thead>
+                        <tbody id="leads-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ═══ Stats Tab ═══ -->
+            <div class="tab-content" id="tab-stats">
+                <div class="stats-grid" id="stats-grid"></div>
+                <div class="heatmap-container">
+                    <h3>Heatmap — координаты курсора</h3>
+                    <canvas id="heatmap-canvas"></canvas>
+                    <button class="btn btn-secondary btn-sm fullscreen-btn" id="fullscreen-heatmap">На весь экран</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ Service Modal ═══ -->
+    <div class="modal-overlay" id="service-modal">
+        <div class="modal">
+            <h3 id="service-modal-title">Добавить услугу</h3>
+            <form id="service-form">
+                <input type="hidden" id="service-id">
+                <div class="form-group">
+                    <label for="svc-name">Название</label>
+                    <input type="text" id="svc-name" required>
+                </div>
+                <div class="form-group">
+                    <label for="svc-desc">Описание</label>
+                    <textarea id="svc-desc"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="svc-min">Мин. цена (₽)</label>
+                    <input type="number" id="svc-min" required min="0">
+                </div>
+                <div class="form-group">
+                    <label for="svc-max">Макс. цена (₽)</label>
+                    <input type="number" id="svc-max" required min="0">
+                </div>
+                <div class="modal-actions">
+                    <button type="submit" class="btn">Сохранить</button>
+                    <button type="button" class="btn btn-secondary" id="close-modal">Отмена</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ═══ Lead Detail Modal ═══ -->
+    <div class="modal-overlay" id="lead-modal">
+        <div class="modal lead-modal" tabindex="-1">
+            <div class="lead-modal-header">
+                <h3 id="lead-modal-title">Заявка #—</h3>
+                <div class="lead-badges" id="lead-modal-badges"></div>
+                <button type="button" class="lead-close" id="lead-modal-x" aria-label="Закрыть">✕</button>
+            </div>
+            <div class="modal-body" id="lead-modal-body"></div>
+            <div class="lead-recommendation" id="lead-modal-recommendation" hidden></div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" id="lead-modal-close">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+// ═══ API helpers ═══
+const API = '/api';
+let token = localStorage.getItem('admin_token');
+
+async function api(endpoint, opts = {}) {
+    const headers = { 'Content-Type': 'application/json', ...opts.headers };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(`${API}${endpoint}`, { ...opts, headers });
+    if (res.status === 401) { logout(); return null; }
+    const data = await res.json().catch(() => null);
+    return { ok: res.ok, data, status: res.status };
+}
+
+// ═══ Auth ═══
+const authScreen = document.getElementById('auth-screen');
+const adminPanel = document.getElementById('admin-panel');
+const loginForm = document.getElementById('login-form');
+const registerForm = document.getElementById('register-form');
+const toggleText = document.getElementById('toggle-text');
+const toggleLink = document.getElementById('toggle-link');
+let isLoginMode = true;
+
+toggleLink.addEventListener('click', () => {
+    isLoginMode = !isLoginMode;
+    loginForm.style.display = isLoginMode ? 'block' : 'none';
+    registerForm.style.display = isLoginMode ? 'none' : 'block';
+    toggleText.textContent = isLoginMode ? 'Нет аккаунта?' : 'Уже есть аккаунт?';
+    toggleLink.textContent = isLoginMode ? 'Зарегистрироваться' : 'Войти';
+    clearAuthErrors();
+});
+
+async function checkFirstAdmin() {
+    const res = await api('/auth/status');
+    if (res?.data?.is_first_admin === false) {
+        toggleLink.parentElement.style.display = 'none';
+    }
+}
+
+loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('login-email').value;
+    const password = document.getElementById('login-password').value;
+    const btn = document.getElementById('login-btn');
+    const err = document.getElementById('login-error');
+    btn.disabled = true;
+    err.style.display = 'none';
+
+    const res = await api('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+    });
+
+    if (res?.ok) {
+        token = res.data.access_token;
+        localStorage.setItem('admin_token', token);
+        showAdminPanel();
+    } else {
+        err.textContent = res?.data?.detail || 'Ошибка входа';
+        err.style.display = 'block';
+    }
+    btn.disabled = false;
+});
+
+registerForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('reg-email').value;
+    const password = document.getElementById('reg-password').value;
+    const full_name = document.getElementById('reg-name').value || null;
+    const btn = document.getElementById('register-btn');
+    const err = document.getElementById('register-error');
+    btn.disabled = true;
+    err.style.display = 'none';
+
+    const res = await api('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({ email, password, full_name }),
+    });
+
+    if (res?.ok) {
+        // Регистрация успешна — показываем логин
+        showStatus('Администратор создан! Теперь войдите.', 'ok');
+        toggleLink.click();
+    } else {
+        err.textContent = res?.data?.detail || 'Ошибка регистрации';
+        err.style.display = 'block';
+    }
+    btn.disabled = false;
+});
+
+function showStatus(msg, type) {
+    const el = document.getElementById('auth-status');
+    el.textContent = msg;
+    el.className = `status-msg ${type}`;
+    el.style.display = 'block';
+}
+
+function clearAuthErrors() {
+    document.querySelectorAll('.error-msg, .status-msg').forEach(el => el.style.display = 'none');
+}
+
+function logout() {
+    token = null;
+    localStorage.removeItem('admin_token');
+    authScreen.style.display = 'flex';
+    adminPanel.classList.remove('active');
+    checkFirstAdmin();
+}
+
+document.getElementById('logout-btn').addEventListener('click', logout);
+
+// ═══ Admin Panel ═══
+function showAdminPanel() {
+    authScreen.style.display = 'none';
+    adminPanel.classList.add('active');
+    loadServices();
+}
+
+// Tabs
+document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(`tab-${tab.dataset.tab}`).classList.add('active');
+        if (tab.dataset.tab === 'stats') loadStats();
+        if (tab.dataset.tab === 'leads') loadLeads();
+    });
+});
+
+// ═══ Services CRUD ═══
+async function loadServices() {
+    const res = await api('/admin');
+    if (!res?.ok) return;
+    const services = res.data;
+    const tbody = document.getElementById('services-tbody');
+    tbody.innerHTML = services.map(s => `
+        <tr>
+            <td>${s.id}</td>
+            <td>${s.name}</td>
+            <td>${s.description || '—'}</td>
+            <td>${s.price_min.toLocaleString('ru-RU')}</td>
+            <td>${s.price_max.toLocaleString('ru-RU')}</td>
+            <td><span class="badge" style="background:${s.is_active ? '#d1fae5;color:#065f46' : '#fee2e2;color:#991b1b'}">${s.is_active ? 'Активна' : 'Неактивна'}</span></td>
+            <td class="actions">
+                <button class="btn btn-secondary btn-sm" onclick="editService(${s.id})">✏️</button>
+                <button class="btn btn-danger btn-sm" onclick="deleteService(${s.id})">🗑️</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+document.getElementById('add-service-btn').addEventListener('click', () => openServiceModal());
+document.getElementById('close-modal').addEventListener('click', () => closeModal());
+
+function openServiceModal(svc = null) {
+    document.getElementById('service-modal-title').textContent = svc ? 'Редактировать услугу' : 'Добавить услугу';
+    document.getElementById('service-id').value = svc?.id || '';
+    document.getElementById('svc-name').value = svc?.name || '';
+    document.getElementById('svc-desc').value = svc?.description || '';
+    document.getElementById('svc-min').value = svc?.price_min || 0;
+    document.getElementById('svc-max').value = svc?.price_max || 0;
+    document.getElementById('service-modal').classList.add('active');
+}
+
+function closeModal() {
+    document.getElementById('service-modal').classList.remove('active');
+}
+
+window.editService = (id) => {
+    api(`/admin/${id}`).then(res => {
+        if (res?.ok) openServiceModal(res.data);
+    });
+};
+
+window.deleteService = async (id) => {
+    if (!confirm('Удалить услугу?')) return;
+    const res = await api(`/admin/${id}`, { method: 'DELETE' });
+    if (res?.ok) loadServices();
+};
+
+document.getElementById('service-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const id = document.getElementById('service-id').value;
+    const payload = {
+        name: document.getElementById('svc-name').value,
+        description: document.getElementById('svc-desc').value || null,
+        price_min: parseInt(document.getElementById('svc-min').value),
+        price_max: parseInt(document.getElementById('svc-max').value),
+    };
+    const method = id ? 'PATCH' : 'POST';
+    const endpoint = id ? `/admin/${id}` : '/admin';
+    const res = await api(endpoint, { method, body: JSON.stringify(payload) });
+    if (res?.ok) {
+        closeModal();
+        loadServices();
+    }
+});
+
+// ═══ Leads ═══
+async function loadLeads() {
+    const res = await api('/admin/leads?limit=1000');
+    if (!res?.ok) return;
+    const leads = res.data;
+    const tbody = document.getElementById('leads-tbody');
+    tbody.innerHTML = leads.map(l => {
+        const a = l.analysis || {};
+        const temp = a.temperature || 'cold';
+        const urg = a.urgency || 'low';
+        const tempClass = temp === 'hot' ? 'hot' : temp === 'warm' ? 'warm' : 'cold';
+        const urgClass = urg === 'high' ? 'high' : urg === 'medium' ? 'medium' : 'low';
+        return `
+            <tr>
+                <td>${l.id}</td>
+                <td>${l.contact}</td>
+                <td>${[l.first_name, l.last_name].filter(Boolean).join(' ') || '—'}</td>
+                <td>${l.niche || '—'}</td>
+                <td>${l.budget || '—'}</td>
+                <td><span class="badge ${tempClass}">${temp} (${a.score || 0})</span></td>
+                <td><span class="badge ${urgClass}">${urg}</span></td>
+                <td class="actions">
+                    <button class="btn btn-secondary btn-sm" onclick="viewLead(${l.id})">👁️</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteLead(${l.id})">🗑️</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+const ROLE_LABELS = { executive: 'Руководитель (ЛПР)', employee: 'Сотрудник', manager: 'Менеджер' };
+const SIZE_LABELS = { large: 'Крупная (100+)', medium: 'Средняя (10–100)', small: 'Малая (до 10)', freelancer: 'Частное лицо' };
+const DEPT_LABELS = {
+    general: 'Общий отдел', marketing: 'Маркетинг', development: 'Разработка',
+    design: 'Дизайн', auto_service: 'Автосервис', sales: 'Продажи',
+};
+const TEMP_LABELS = { hot: 'Горячий', warm: 'Тёплый', cold: 'Холодный' };
+const URG_LABELS = { high: 'Высокая', medium: 'Средняя', low: 'Низкая' };
+
+const fmt = (v) => (v === null || v === undefined || v === '') ? '—' : v;
+const secsLabel = (s) => {
+    if (s == null) return '—';
+    if (s >= 3600) return `${Math.floor(s/3600)} ч ${Math.round(s%3600/60)} мин`;
+    if (s >= 60) return `${Math.floor(s/60)} мин ${s%60} с`;
+    return `${s} с`;
+};
+
+const leadField = (label, value, wide = false) =>
+    `<div class="lead-field${wide ? ' wide' : ''}"><dt>${label}</dt><dd>${fmt(value)}</dd></div>`;
+
+const leadSection = (title, fields) => `
+    <div class="lead-section">
+        <div class="lead-section-title">${title}</div>
+        <div class="lead-fields">${Array.isArray(fields) ? fields.join('') : fields}</div>
+    </div>`;
+
+window.viewLead = (id) => {
+    api(`/admin/leads/${id}`).then(res => {
+        if (!res?.ok) return;
+        const l = res.data;
+        const a = l.analysis || {};
+        const b = l.behavior || {};
+
+        // Заголовок + температурные бейджи
+        document.getElementById('lead-modal-title').textContent =
+            `Заявка #${l.id} · ${new Date(l.created_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`;
+        document.getElementById('lead-modal-badges').innerHTML =
+            `<span class="badge ${a.temperature}">${TEMP_LABELS[a.temperature] || a.temperature} (${a.score}/100)</span>` +
+            `<span class="badge ${a.urgency}">${URG_LABELS[a.urgency] || a.urgency} срочность</span>`;
+
+        // Разделы
+        document.getElementById('lead-modal-body').innerHTML = [
+            leadSection('Контакты и компания', [
+                leadField('Контакт', l.contact),
+                leadField('ФИО', [l.last_name, l.first_name, l.middle_name].filter(Boolean).join(' ') || null, true),
+                leadField('О компании', l.business_info),
+                leadField('Размер компании', SIZE_LABELS[l.company_size] || l.company_size),
+                leadField('Ниша', l.niche),
+                leadField('Должность', ROLE_LABELS[l.role] || l.role),
+            ]),
+            leadSection('Задача', [
+                leadField('Тип задачи', l.task_type),
+                leadField('Интерес к продукту', l.product_interest),
+                leadField('Бюджет', l.budget),
+                leadField('Срок', l.deadline),
+                leadField('Канал связи', l.contact_channel),
+                leadField('Удобное время', l.contact_time),
+            ]),
+            leadSection('Комментарий клиента', [
+                leadField('Комментарий', l.comment, true),
+            ]),
+            leadSection('Поведение на сайте', [
+                leadField('Время на странице', secsLabel(b.time_on_page_seconds)),
+                leadField('Кликов', b.clicks_count),
+                leadField('Возвратов', b.returns_count),
+                leadField('Глубина скролла', (b.scroll_depth_percent ?? 0) + ' %'),
+                leadField('Простой курсора', secsLabel(b.cursor_idle_seconds)),
+                leadField('Долгие удержания', b.cursor_hover_stalls),
+                leadField('Источник (UTM)', b.utm_source ? [b.utm_source, b.utm_medium, b.utm_campaign].filter(Boolean).join(' / ') : null),
+                leadField('Реферер', b.referrer),
+                leadField('Экран', (b.screen_width && b.screen_height) ? `${b.screen_width}×${b.screen_height}` : null),
+                leadField('Язык/зона', b.timezone || null),
+            ]),
+            leadSection('AI-анализ', [
+                leadField('Отдел', DEPT_LABELS[a.department] || a.department),
+                leadField('Персональный менеджер', a.needs_personal_manager ? 'Да' : 'Нет'),
+                leadField('Факторы приоритета', a.reasons?.length ? 'см. ниже' : '—', true),
+            ]) +
+            (a.reasons?.length
+                ? `<div class="lead-reasons">${a.reasons.map(r => `<span class="badge warm">${r}</span>`).join('')}</div>`
+                : ''),
+        ].join('');
+
+        // Рекомендация
+        const rec = document.getElementById('lead-modal-recommendation');
+        rec.hidden = false;
+        rec.innerHTML = '<strong>Рекомендация</strong>' + fmt(a.recommendation);
+
+        document.getElementById('lead-modal').classList.add('active');
+        document.querySelector('.lead-modal').focus({ preventScroll: true });
+    });
+};
+
+const closeLeadModal = () => document.getElementById('lead-modal').classList.remove('active');
+document.getElementById('lead-modal-close').addEventListener('click', closeLeadModal);
+document.getElementById('lead-modal-x').addEventListener('click', closeLeadModal);
+document.getElementById('lead-modal').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeLeadModal();
+});
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeLeadModal();
+});
+
+window.deleteLead = async (id) => {
+    if (!confirm('Удалить заявку?')) return;
+    const res = await api(`/admin/leads/${id}`, { method: 'DELETE' });
+    if (res?.ok) loadLeads();
+};
+
+// ═══ Stats + Heatmap ═══
+async function loadStats() {
+    const overview = await api('/admin/stats/overview');
+    const heatmap = await api('/admin/stats/heatmap');
+    
+    if (overview?.ok) {
+        const d = overview.data;
+        document.getElementById('stats-grid').innerHTML = `
+            <div class="stat-card">
+                <h3>Всего заявок</h3>
+                <div class="value">${d.total_leads}</div>
+            </div>
+            <div class="stat-card">
+                <h3>Среднее время (день)</h3>
+                <div class="value">${d.avg_time.day} <span class="unit">сек</span></div>
+            </div>
+            <div class="stat-card">
+                <h3>Среднее время (неделя)</h3>
+                <div class="value">${d.avg_time.week} <span class="unit">сек</span></div>
+            </div>
+            <div class="stat-card">
+                <h3>Среднее время (месяц)</h3>
+                <div class="value">${d.avg_time.month} <span class="unit">сек</span></div>
+            </div>
+            <div class="stat-card">
+                <h3>Макс. время (день)</h3>
+                <div class="value">${d.max_time.day} <span class="unit">сек</span></div>
+            </div>
+            <div class="stat-card">
+                <h3>Макс. время (месяц)</h3>
+                <div class="value">${d.max_time.month} <span class="unit">сек</span></div>
+            </div>
+        `;
+    }
+
+    if (heatmap?.ok) {
+        drawHeatmap(heatmap.data.points);
+    }
+}
+
+function drawHeatmap(points) {
+    const canvas = document.getElementById('heatmap-canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = canvas.offsetWidth;
+    canvas.height = 500;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Сетка
+    ctx.strokeStyle = '#e5e7eb';
+    ctx.lineWidth = 1;
+    for (let x = 0; x < canvas.width; x += 50) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+    }
+    for (let y = 0; y < canvas.height; y += 50) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+    }
+
+    // Точки
+    const maxCount = Math.max(1, ...points.map(p => p.count));
+    points.forEach(p => {
+        const x = (p.x / 100) * canvas.width;
+        const y = (p.y / 100) * canvas.height;
+        const radius = 5 + (p.count / maxCount) * 20;
+        const alpha = 0.3 + (p.count / maxCount) * 0.7;
+        
+        const grad = ctx.createRadialGradient(x, y, 0, x, y, radius);
+        grad.addColorStop(0, `rgba(239, 68, 68, ${alpha})`);
+        grad.addColorStop(1, `rgba(239, 68, 68, 0)`);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fill();
+    });
+}
+
+document.getElementById('fullscreen-heatmap').addEventListener('click', () => {
+    const container = document.querySelector('.heatmap-container');
+    container.style.position = 'fixed';
+    container.style.inset = '0';
+    container.style.zIndex = '200';
+    container.style.padding = '24px';
+    container.style.background = 'var(--bg)';
+    document.getElementById('heatmap-canvas').style.height = 'calc(100vh - 100px)';
+});
+
+// ═══ Init ═══
+(async () => {
+    if (token) {
+        // Проверяем токен
+        const res = await api('/auth/me');
+        if (res?.ok) {
+            showAdminPanel();
+            return;
+        }
+    }
+    checkFirstAdmin();
+})();
+</script>
+</body>
+</html>

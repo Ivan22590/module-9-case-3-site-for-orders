@@ -38,9 +38,13 @@ services:
     restart: unless-stopped
     # Label включает слежение watchtower именно за этим контейнером
     labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      # легаси-лейбл для совместимости со старыми версиями watchtower
       - "com.centurylinkfoundation.watchtower.enable=true"
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES}
     depends_on:
       postgres:
         condition: service_healthy

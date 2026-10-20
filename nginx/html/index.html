@@ -595,11 +595,12 @@ const state = {
     hoverStalls: 0,
     returns: 0,
     lastScrollY: 0,
+    cursorTrail: [],  // [[x, y], ...] — последние 100 координат
 };
 
 document.addEventListener('click', () => state.clicks++);
 
-document.addEventListener('mousemove', () => {
+document.addEventListener('mousemove', (e) => {
     const now = Date.now();
     if (state.idleStart) {
         state.idleMs += now - state.idleStart;
@@ -607,6 +608,14 @@ document.addEventListener('mousemove', () => {
         state.idleStart = null;
     }
     state.lastMove = now;
+    // Сохраняем координаты (процент от ширины/высоты экрана)
+    const x = Math.round((e.clientX / window.innerWidth) * 100);
+    const y = Math.round((e.clientY / window.innerHeight) * 100);
+    state.cursorTrail.push([x, y]);
+    // Храним только последние 200 точек
+    if (state.cursorTrail.length > 200) {
+        state.cursorTrail = state.cursorTrail.slice(-200);
+    }
 });
 
 // Если курсор не двигался 3 сек — считаем зависанием
@@ -645,6 +654,16 @@ function collectBehavior() {
         screen_width: screen.width,
         screen_height: screen.height,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        // Координаты курсора для heatmap
+        cursor_positions: JSON.stringify(state.cursorTrail),
+        // Метаданные устройства
+        platform: navigator.platform || null,
+        touch_points: 'ontouchstart' in window ? (navigator.maxTouchPoints || 1) : 0,
+        device_memory: navigator.deviceMemory || null,
+        hardware_concurrency: navigator.hardwareConcurrency || null,
+        languages: navigator.languages ? navigator.languages.join(',') : null,
+        color_depth: screen.colorDepth || null,
+        pixel_ratio: window.devicePixelRatio || null,
     };
 }
 function getUtm(name) {

@@ -129,6 +129,8 @@ class LeadBehavior(Base):
     screen_width: Mapped[Optional[int]] = mapped_column(Integer)
     screen_height: Mapped[Optional[int]] = mapped_column(Integer)
     tz_name: Mapped[Optional[str]] = mapped_column("timezone", Text)
+    # Координаты курсора для heatmap: [[x,y], ...]
+    cursor_positions: Mapped[Optional[str]] = mapped_column(Text)
 
     recorded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -195,6 +197,7 @@ def create_lead_with_behavior(db: Session, *,
         screen_width=b.get("screen_width"),
         screen_height=b.get("screen_height"),
         tz_name=b.get("timezone"),
+        cursor_positions=b.get("cursor_positions"),
     ))
     db.commit()
     db.refresh(lead)

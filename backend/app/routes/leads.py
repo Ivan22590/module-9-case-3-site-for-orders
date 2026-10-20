@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from ..core.db import get_db
+from ..core.scoring import analyze_lead
 from ..models import lead as lead_crud
 from ..schemas.lead import LeadOut, LeadPackage
 
@@ -22,7 +23,23 @@ def create_lead(package: LeadPackage, db: Session = Depends(get_db)):
         **package.lead.model_dump(),
         behavior=package.behavior.model_dump(),
     )
-    return lead
+    # Добавляем AI-анализ в ответ
+    b = package.behavior
+    analysis = analyze_lead(
+        niche=package.lead.niche,
+        company_size=package.lead.company_size,
+        role=package.lead.role,
+        task_type=package.lead.task_type,
+        product_interest=package.lead.product_interest,
+        budget=package.lead.budget,
+        deadline=package.lead.deadline,
+        time_on_page=b.time_on_page_seconds,
+        clicks=b.clicks_count,
+        returns=b.returns_count,
+    )
+    out = LeadOut.model_validate(lead)
+    out.analysis = analysis
+    return out
 
 
 @router.get("", response_model=list[LeadOut])

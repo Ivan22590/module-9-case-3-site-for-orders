@@ -1,4 +1,4 @@
-# 📦 Сайт для обработки заказов (Module 9, Case 3)
+# 📦 Сайт для обработки заказов
 
 **MVP** — единый веб-стек для приёма и обработки заявок от «тёплых» клиентов.
 
@@ -121,6 +121,8 @@ bash setup.sh
 | Сервис    | URL                                         |
 |-----------|---------------------------------------------|
 | Фронтенд  | `http://<IP-сервера>:8088`                   |
+| Админка   | `http://<IP-сервера>:8088/admin`             |
+| Swagger   | `http://<IP-сервера>:8088/api/docs`          |
 | pgAdmin   | `http://<IP-сервера>:5050`                   |
 | Registry  | `http://<IP-сервера>:5000/v2/_catalog`       |
 
@@ -142,6 +144,15 @@ bash setup.sh
 Доступен через nginx: `http://<IP-сервера>:8088/api/docs`
 
 Для работы Swagger UI добавлена директива `root_path="/api"` в FastAPI — все пути в OpenAPI spec будут содержать `/api/...`, что позволяет корректно генерировать запросы через nginx-прокси.
+
+### Админ-панель
+
+Страница `http://<IP-сервера>:8088/admin` — личный кабинет администратора (белая тема, шрифт Inter):
+
+- **Вход/регистрация** — первый администратор регистрируется сам, после этого регистрация автоматически закрывается (JWT-токен выдаётся на 12 часов)
+- **Услуги** — CRUD услуг через модальное окно (создание, редактирование, удаление)
+- **Заявки** — список с AI-анализом: score 0–100, температура (hot/warm/cold), срочность, горячие заявки сверху; просмотр деталей и рекомендации
+- **Статистика** — карточки (заявки, среднее/максимальное время на странице за день/неделю/месяц) и heatmap координат курсора по всем заявкам
 
 ---
 
@@ -178,6 +189,10 @@ REGISTRY_HOST=<IP-или-домен-сервера>:5000   # Хост для т�
 # --- Watchtower ---
 WATCHTOWER_INTERVAL=300      # Интервал проверки (сек)
 WATCHTOWER_CLEANUP=true
+
+# --- JWT (авторизация администраторов) ---
+JWT_SECRET_KEY=<СГЕНЕРИРУЙТЕ: openssl rand -hex 32>
+JWT_EXPIRE_MINUTES=720       # Срок жизни токена (минут, 720 = 12 ч)
 ```
 ```
 
@@ -254,6 +269,11 @@ docker compose up -d --build backend
 docker push <IP-сервера>:5000/orders-backend:latest
 ```
 
+> 💡 Push с самого сервера (обычный `docker push` требует insecure-registries
+> в серверном daemon.json, который нельзя менять без root) можно сделать
+> вручную через Registry HTTP API — см. скрипт в истории коммитов
+> (`docker save` + загрузка blobs на `http://<IP>:5000/v2/<имя>/blobs/uploads/`).
+
 ### 4. Автообновление
 
 Watchtower проверяет Registry каждые `WATCHTOWER_INTERVAL` секунд (по умолчанию 300).
@@ -261,6 +281,19 @@ Watchtower проверяет Registry каждые `WATCHTOWER_INTERVAL` сек
 1. Скачивает новый образ из Registry
 2. Пересоздаёт контейнер `orders_backend`
 3. Nginx автоматически начинает проксировать на новый IP
+
+> ⚠️ Серверный Docker daemon должен разрешать HTTP-registry:
+> в `/etc/docker/daemon.json` на **сервере** добавьте
+> `"insecure-registries": ["<IP-сервера>:5000"]` и перезапустите Docker
+> (`systemctl restart docker` — перезапустит все контейнеры!). Без этого
+> watchtower логирует `http: server gave HTTP response to HTTPS client`.
+> Альтернатива без root: пересборка вручную — `docker compose up -d --build backend`.
+
+Watchtower следит ТОЛЬКО за контейнерами с label
+`com.centurylinklabs.watchtower.enable=true` (лин в docker-compose.yml
+у backend; там же задан легаси-лейбл `com.centurylinkfoundation...`).
+Так же проекту нужен свежий watchtower, совместимый с Docker API сервера:
+в environment watchtower задан `DOCKER_API_VERSION=1.40`.
 
 ---
 
@@ -312,7 +345,8 @@ module_9_case_3_site_for_orders/
 │   ├── Dockerfile          # Образ nginx:1.27-alpine
 │   ├── nginx.conf          # Статика + proxy /api/ → backend:8000
 │   └── html/
-│       └── index.html      # Форма заявки + JS-агрегация метрик
+│               ├── index.html      # Форма заявки + JS-агрегация метрик
+        └── admin.html      # Админ-панель (вход, услуги, заявки, статистика)
 │
 ├── backend/
 │   ├── Dockerfile          # python:3.12-slim + uvicorn
@@ -322,20 +356,25 @@ module_9_case_3_site_for_orders/
 │       ├── main.py         # Точка входа, api_router, lifespan
 │       ├── core/
 │       │   ├── __init__.py
-│       │   └── db.py       # Движок SQLAlchemy, SessionLocal, Base, get_db
+│       │   ├── db.py       # Движок SQLAlchemy, SessionLocal, Base, get_db
+│       │   ├── security.py # PBKDF2-хеши + JWT (PyJWT)
+│       │   └── scoring.py  # AI-скоринг лидов
 │       ├── models/
 │       │   ├── __init__.py
 │       │   ├── service.py  # Service + CRUD (услуги, диапазоны цен)
-│       │   └── lead.py     # Lead + LeadBehavior (1:1) + CRUD
+│       │   ├── lead.py     # Lead + LeadBehavior (1:1) + CRUD
+│       │   └── admin.py    # Admin + CRUD (администраторы)
 │       ├── schemas/
 │       │   ├── __init__.py
 │       │   ├── service.py  # ServiceCreate/Update/Out
-│       │   └── lead.py     # LeadPackage/LeadOut/BehaviorOut
+│       │   ├── lead.py     # LeadPackage/LeadOut/BehaviorOut (+analysis)
+│       │   └── auth.py     # AdminRegister/Login/Out, TokenResponse
 │       └── routes/
 │           ├── __init__.py
 │           ├── public.py   # GET /health, GET /services
 │           ├── leads.py    # POST/GET/DELETE /leads
-│           └── admin.py    # CRUD /admin/services
+│           ├── auth.py     # register/login/status/me (JWT)
+│           └── admin.py    # /admin + /admin/leads + /admin/stats (JWT)
 │
 ├── registry/
 │   ├── auth/               # htpasswd (создаёт setup.sh)
@@ -349,37 +388,39 @@ module_9_case_3_site_for_orders/
 Backend реализован по классической слоистой архитектуре FastAPI:
 
 ```
-main.py (точка входа)
-  └── api_router (объединяет роуты)
-        ├── public.py   ← GET /health, GET /services
-        ├── leads.py    ← POST/GET/DELETE /leads
-        └── admin.py    ← CRUD /admin/services
-              ↑
-         Схемы (schemas/)
-              ↑
-         Модели (models/) — SQLAlchemy + CRUD-функции
-              ↑
-         Ядро (core/) — движок БД, get_db
+api_router (объединяет роуты)
+      ├── auth.py     ← POST /auth/register (первый админ), /auth/login → JWT
+      ├── public.py   ← GET /health, GET /services
+      ├── leads.py    ← POST/GET/DELETE /leads
+      └── admin.py    ← CRUD /admin + /admin/leads + /admin/stats (JWT)
+            ↑
+       Схемы (schemas/)
+            ↑
+       Модели (models/) — SQLAlchemy + CRUD-функции
+            ↑
+       Ядро (core/) — движок БД, get_db, security (PBKDF2 + JWT), scoring
 ```
 
-**Ядро (`core/db.py`)**
-- Подключение к PostgreSQL через `DATABASE_URL` (из docker-compose)
-- Движок `create_engine`, `SessionLocal`, базовый класс `Base`
-- Зависимость `get_db()` для FastAPI
+**Ядро (`core/`)**
+- `db.py` — подключение к PostgreSQL через `DATABASE_URL` (из docker-compose), движок `create_engine`, `SessionLocal`, базовый класс `Base`, зависимость `get_db()` для FastAPI
+- `security.py` — хеширование паролей (PBKDF2-HMAC-SHA256) и JWT-токены (PyJWT, секрет из `JWT_SECRET_KEY`)
+- `scoring.py` — AI-скоринг лидов: score 0–100, температура (hot/warm/cold), срочность, отдел-обработчик, персональный менеджер, текстовая рекомендация
 
 **Модели (`models/`)**
 - `service.py` — таблица `services` (услуги + диапазоны цен), CRUD-функции `create_service`, `list_services`, `update_service`, `delete_service`
-- `lead.py` — таблица `leads` (заявки) + `lead_behavior` (поведение 1:1), CRUD-функции `create_lead_with_behavior`, `list_leads`, `delete_lead`
-- Каждая модель содержит SQL-код для создания таблицы в докстринге
+- `lead.py` — таблица `leads` (заявки) + `lead_behavior` (поведение 1:1, включая координаты курсора для heatmap), CRUD-функции `create_lead_with_behavior`, `list_leads`, `get_lead`, `delete_lead`
+- `admin.py` — таблица `admins` (email + PBKDF2-хеш + флаг активности), CRUD-функции `create_admin`, `get_admin_by_email`, `admin_exists`
 
 **Схемы (`schemas/`)**
 - Pydantic-схемы для валидации входящих данных и форматирования ответов
 - `LeadPackage` — единый пакет `{lead: {...}, behavior: {...}}`
+- `auth.py` — AdminRegister/AdminLogin/AdminOut/TokenResponse
 
 **Роуты (`routes/`)**
-- `public.py` — публичные эндпоинты для фронтенда
-- `leads.py` — приём заявок единым пакетом, чтение, удаление
-- `admin.py` — CRUD услуг (для администратора через Swagger)
+- `public.py` — публичные эндпоинты для фронтенда (health, список активных услуг)
+- `leads.py` — приём заявок единым пакетом (в ответ — вычисленный AI-анализ), чтение, удаление
+- `auth.py` — регистрация первого админа, вход (JWT), статус регистрации, данные текущего админа
+- `admin.py` — приватные эндпоинты под JWT: CRUD услуг, заявки с анализом (сортировка по score), статистика, heatmap
 
 **Миграция** — при старте `main.py` переименовывает старую MVP-таблицу `leads` в `leads_legacy_v1` и создаёт новые таблицы через `Base.metadata.create_all()`.
 
@@ -447,6 +488,55 @@ environment:
 ```json
 {"status": "ok"}
 ```
+
+### `GET /api/auth/status`
+
+Проверка: можно ли зарегистрировать первого администратора.
+
+**Response (200):**
+```json
+{"is_first_admin": true}
+```
+> `is_first_admin: true` — админов в БД нет, `POST /api/auth/register` открыт.
+> После регистрации первого админа endpoint закрыт навсегда (403).
+
+### `POST /api/auth/register`
+
+Регистрация **первого администратора** (только если админов ещё нет).
+
+**Body:**
+```json
+{
+  "email": "admin@orders.com",
+  "password": "минимум 6 символов",
+  "full_name": "Иван Петров"
+}
+```
+
+### `POST /api/auth/login`
+
+Вход администратора → JWT-токен (действует `JWT_EXPIRE_MINUTES`, по умолчанию 12 ч).
+
+**Response (200):**
+```json
+{
+  "access_token": "<jwt>",
+  "token_type": "bearer",
+  "admin": {
+    "id": 1,
+    "email": "admin@orders.com",
+    "full_name": "Иван Петров",
+    "is_active": true,
+    "created_at": "2026-10-20T12:59:59Z"
+  }
+}
+```
+> Токен передаётся во все приватные эндпоинты заголовком:
+> `Authorization: Bearer <token>`
+
+### `GET /api/auth/me`
+
+Данные текущего админа по `Authorization: Bearer <token>` (401 без токена).
 
 ### `GET /api/services`
 
@@ -523,6 +613,12 @@ environment:
     "returns_count": 2,
     "scroll_depth_percent": 85
   },
+  "analysis": {
+    "score": 62,
+    "temperature": "hot",
+    "urgency": "high",
+    "department": "general"
+  },
   "created_at": "2026-10-20T12:59:59Z"
 }
 ```
@@ -541,9 +637,15 @@ environment:
 
 Удаление заявки (поведение удаляется по CASCADE).
 
-### `POST /api/admin/services`
+---
 
-Создание услуги (через Swagger UI).
+## 🔐 Приватные эндпоинты (только с JWT)
+
+Все эндпоинты ниже требуют заголовок `Authorization: Bearer <token>` — без него 401, с чужим/просроченным токеном — 401, неактивный админ — 403.
+
+### `POST /api/admin`
+
+Создание услуги.
 
 **Body:**
 ```json
@@ -554,18 +656,61 @@ environment:
   "price_max": 60000
 }
 ```
+> `price_min > price_max` → 422; дубль названия → 409.
 
-### `GET /api/admin/services`
+### `GET /api/admin`
 
 Список всех услуг (включая отключённые, если `include_inactive=true`).
 
-### `PATCH /api/admin/services/{service_id}`
+### `GET /api/admin/{service_id}`
+
+Услуга по ID.
+
+### `PATCH /api/admin/{service_id}`
 
 Частичное обновление услуги.
 
-### `DELETE /api/admin/services/{service_id}`
+### `DELETE /api/admin/{service_id}`
 
 Удаление услуги.
+
+### `GET /api/admin/leads`
+
+Заявки с AI-анализом, отсортированные по score (горячие сверху).
+
+**Query parameters:** `skip=0`, `limit=100` (макс. 1000)
+
+**Response (200):** `Out` каждой заявки дополнен полем `analysis`:
+```json
+{
+  "analysis": {
+    "score": 72,
+    "temperature": "hot",
+    "urgency": "high",
+    "department": "auto_service",
+    "needs_personal_manager": true,
+    "recommendation": "Критически важный лид! …",
+    "reasons": ["высокий бюджет", "срочные сроки", "решающее лицо"]
+  }
+}
+```
+
+### `GET /api/admin/leads/{lead_id}`
+
+Заявка по ID с анализом. `DELETE` — удаление.
+
+### `GET /api/admin/stats/overview`
+
+Общая статистика: количество заявок/услуг/поведений и avg/max время на странице за день/неделю/месяц.
+
+### `GET /api/admin/stats/heatmap`
+
+Кластеризованные координаты курсора по всем заявкам (сетка 5%):
+
+**Response (200):**
+```json
+{"points": [{"x": 40, "y": 65, "count": 12}, ...]}
+```
 
 ---
 
@@ -626,6 +771,17 @@ environment:
 | is_active   | BOOLEAN     | Активна/неактивна     |
 | created_at  | TIMESTAMPTZ | Дата создания         |
 
+**Таблица `admins` — администраторы:**
+
+| Колонка       | Тип         | Описание                        |
+|---------------|-------------|---------------------------------|
+| id            | SERIAL      | Первичный ключ                  |
+| email         | TEXT UNIQUE | Email (логин)                   |
+| full_name     | TEXT        | Имя                             |
+| password_hash | TEXT        | PBKDF2-SHA256 (pbkdf2_sha256$…) |
+| is_active     | BOOLEAN     | Активен/заблокирован            |
+| created_at    | TIMESTAMPTZ | Дата создания                   |
+
 **SQL для просмотра:**
 ```sql
 -- Заявки с поведением
@@ -642,7 +798,3 @@ FROM services ORDER BY id;
 
 ---
 
-## 🆘 Контакты
-
-- Документация Koda: https://docs.kodacode.ru
-- Сообщество Telegram: https://t.me/kodacommunity
