@@ -1,0 +1,154 @@
+# ============================================================
+# Единый веб-стек: nginx + postgres + pgadmin + backend +
+# локальный registry + watchtower
+# Frontend -> Backend коммуникация только через внутреннюю сеть.
+# ============================================================
+
+services:
+  # ------------------------------------------------------------
+  # Nginx — входная точка. Единственный сервис, видимый извне
+  # (кроме registry и pgadmin, открытых по требованию).
+  # ------------------------------------------------------------
+  nginx:
+    build:
+      context: ./nginx
+    container_name: orders_nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_PORT}:80"
+    depends_on:
+      - backend
+    networks:
+      - frontend
+      - backend_net
+
+  # ------------------------------------------------------------
+  # Backend-заглушка (FastAPI). Наружу НЕ торчит: портов нет,
+  # доступ только через nginx по внутренней сети.
+  # ------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      # Образ сразу тегается именем из registry — достаточно
+      # `docker push ${REGISTRY_HOST}/orders-backend:latest`,
+      # и watchtower подхватит обновление.
+      # docker compose up -d --build соберёт и запустит его локально.
+    image: ${REGISTRY_HOST}/orders-backend:latest
+    container_name: orders_backend
+    restart: unless-stopped
+    # Label включает слежение watchtower именно за этим контейнером
+    labels:
+      - "com.centurylinkfoundation.watchtower.enable=true"
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - backend_net
+
+  # ------------------------------------------------------------
+  # PostgreSQL. Публикуемых портов нет — доступ только из
+  # backend внутри внутренней сети (требование ТЗ по безопасности).
+  # ------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: orders_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - backend_net
+
+  # ------------------------------------------------------------
+  # pgAdmin — веб-панель для просмотра БД (порт 5050).
+  # ------------------------------------------------------------
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: orders_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      # external_net — чтобы порт 5050 был доступен снаружи
+      # (internal-сеть внешний трафик не пропускает)
+      - external_net
+      - backend_net
+
+  # ------------------------------------------------------------
+  # Локальный Docker Registry. Доступен извне на 5000 для
+  # docker login / docker push с локальной машины.
+  # Авторизация — htpasswd (файл создаёт setup.sh).
+  # ------------------------------------------------------------
+  registry:
+    image: registry:2
+    container_name: orders_registry
+    restart: unless-stopped
+    environment:
+      REGISTRY_HTTP_ADDR: 0.0.0.0:5000
+      REGISTRY_AUTH: htpasswd
+      REGISTRY_AUTH_HTPASSWD_REALM: "Orders Registry"
+      REGISTRY_AUTH_HTPASSWD_PATH: /auth/htpasswd
+    volumes:
+      - ./registry/data:/var/lib/registry
+      - ./registry/auth:/auth
+    ports:
+      - "${REGISTRY_PORT}:5000"
+    networks:
+      # external_net — для docker login/push снаружи
+      - external_net
+      - backend_net
+
+  # ------------------------------------------------------------
+  # Watchtower — автообновление backend из локального registry.
+  # Следит ТОЛЬКО за orders_backend (label включён в backend).
+  # DOCKER_API_VERSION — совместимость с хостовым Docker daemon.
+  # ------------------------------------------------------------
+  watchtower:
+    image: containrrr/watchtower
+    container_name: orders_watchtower
+    restart: unless-stopped
+    environment:
+      # Креды для доступа watchtower к локальному registry
+      REPO_USER: ${REGISTRY_USER}
+      REPO_PASS: ${REGISTRY_PASSWORD}
+      WATCHTOWER_INTERVAL: ${WATCHTOWER_INTERVAL}
+      WATCHTOWER_CLEANUP: ${WATCHTOWER_CLEANUP}
+      WATCHTOWER_LABEL_ENABLE: "true"
+      # Совместимость Docker API: хостовый daemon 1.44+,
+      # watchtower нужен клиент не ниже 1.40
+      DOCKER_API_VERSION: "1.40"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval ${WATCHTOWER_INTERVAL} --label-enable
+    networks:
+      # Доступ к registry по внутренней сети
+      - backend_net
+
+volumes:
+  pg_data:
+
+networks:
+  # Внутренняя сеть: postgres, backend, pgadmin, registry, watchtower.
+  # internal: true — трафик наружу/изнутри через хост запрещён.
+  backend_net:
+    internal: true
+  # Сеть фронта: nginx подключается сюда и в backend_net
+  frontend:
+  # Обычная (не internal) сеть для сервисов с опубликованными
+  # портами: registry (docker push извне), pgadmin (веб-панель)
+  external_net:

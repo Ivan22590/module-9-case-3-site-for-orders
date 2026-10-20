@@ -1,0 +1,16 @@
+# Секреты — никогда не коммитить
+.env
+env.txt
+registry/auth/
+
+# Данные registry (образы)
+registry/data/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Прочее
+*.log
+.DS_Store
