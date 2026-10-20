@@ -1,13 +1,13 @@
 # ============================================================
-# Единый веб-стек: nginx + postgres + pgadmin + backend +
-# локальный registry + watchtower
-# Frontend -> Backend коммуникация только через внутреннюю сеть.
+# Единый веб-стек: nginx + postgres + backend + registry +
+# watchtower. Единственная точка входа — nginx (порт 8088).
+# Backend/Postgres портов не публикуют: наружу только nginx.
+# Registry слушает только 127.0.0.1 (docker push/logout локально).
 # ============================================================
 
 services:
   # ------------------------------------------------------------
-  # Nginx — входная точка. Единственный сервис, видимый извне
-  # (кроме registry и pgadmin, открытых по требованию).
+  # Nginx — входная точка. Единственный сервис, видимый извне.
   # ------------------------------------------------------------
   nginx:
     build:
@@ -74,28 +74,27 @@ services:
       - backend_net
 
   # ------------------------------------------------------------
-  # pgAdmin — веб-панель для просмотра БД (порт 5050).
+  # pgAdmin отключён (требование по безопасности: одна точка
+  # входа). При необходимости вернуть — раскомментировать блок.
   # ------------------------------------------------------------
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: orders_pgadmin
-    restart: unless-stopped
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
-    ports:
-      - "5050:80"
-    depends_on:
-      - postgres
-    networks:
-      # external_net — чтобы порт 5050 был доступен снаружи
-      # (internal-сеть внешний трафик не пропускает)
-      - external_net
-      - backend_net
+  # pgadmin:
+  #   image: dpage/pgadmin4:latest
+  #   container_name: orders_pgadmin
+  #   restart: unless-stopped
+  #   environment:
+  #     PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+  #     PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+  #   ports:
+  #     - "5050:80"
+  #   depends_on:
+  #     - postgres
+  #   networks:
+  #     - backend_net
 
   # ------------------------------------------------------------
-  # Локальный Docker Registry. Доступен извне на 5000 для
-  # docker login / docker push с локальной машины.
+  # Локальный Docker Registry. Публикуется ТОЛЬКО на 127.0.0.1:
+  # снаружи недоступен, docker daemon этого сервера и watchtower
+  # работают с ним по loopback (REGISTRY_HOST=127.0.0.1:5000 в .env).
   # Авторизация — htpasswd (файл создаёт setup.sh).
   # ------------------------------------------------------------
   registry:
@@ -111,11 +110,12 @@ services:
       - ./registry/data:/var/lib/registry
       - ./registry/auth:/auth
     ports:
-      - "${REGISTRY_PORT}:5000"
+      # Loopback-only: push/login только с самого сервера
+      - "127.0.0.1:${REGISTRY_PORT}:5000"
     networks:
-      # external_net — для docker login/push снаружи
-      - external_net
-      - backend_net
+      # Порты из internal-сетей (backend_net) на хост не публикуются,
+      # поэтому registry держим в обычной сети compose по умолчанию
+      - default
 
   # ------------------------------------------------------------
   # Watchtower — автообновление backend из локального registry.
@@ -147,12 +147,9 @@ volumes:
   pg_data:
 
 networks:
-  # Внутренняя сеть: postgres, backend, pgadmin, registry, watchtower.
+  # Внутренняя сеть: postgres, backend, registry, watchtower.
   # internal: true — трафик наружу/изнутри через хост запрещён.
   backend_net:
     internal: true
   # Сеть фронта: nginx подключается сюда и в backend_net
   frontend:
-  # Обычная (не internal) сеть для сервисов с опубликованными
-  # портами: registry (docker push извне), pgadmin (веб-панель)
-  external_net:

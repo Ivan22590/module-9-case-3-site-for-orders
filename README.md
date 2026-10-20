@@ -55,16 +55,14 @@
               │ internal network (backend_net)
               │ ┌──────────────┐  ┌──────────────┐
               │ │  Registry    │  │  Watchtower  │
-              │ │  :5000       │  │  :8080       │
+              │ │  (127.0.0.1: │  │  :8080       │
+              │ │   5000)      │  │              │
               │ └──────────────┘  └──────────────┘
               │
-              └── external network (external_net)
-                  ┌──────────────┐
-                  │   pgAdmin    │← Веб-панель БД :5050
-                  └──────────────┘
+              └── (pgAdmin отключён — единая точка входа nginx:8088)
 ```
 
-**Ключевой принцип — «докеризованный монолит»:** всё работает на одном виртуальном сервере, изолировано в Docker-сетях, внешняя точка входа — только Nginx.
+**Ключевой принцип — «докеризованный монолит»:** всё работает на одном виртуальном сервере, изолировано в Docker-сетях, внешняя точка входа — только Nginx. Backend, PostgreSQL, registry, watchtor внутрь контура; registry публикуется только на 127.0.0.1 (для docker push с самого сервера).
 
 ---
 
@@ -75,7 +73,7 @@
 | Frontend      | HTML + CSS + vanilla JavaScript     |
 | Backend       | Python 3.12 + FastAPI + SQLAlchemy  |
 | База данных   | PostgreSQL 16 (Alpine)              |
-| Админка БД    | pgAdmin 4                           |
+| Админка БД    | pgAdmin 4 (отключён — не входит в публичный контур) |
 | Reverse-proxy | Nginx 1.27 (Alpine)                 |
 | Registry      | Docker Registry v2                  |
 | Автодеплой    | Watchtower                          |
@@ -90,8 +88,8 @@
 | **Nginx**      | 8088          | Статика фронта + прокси `/api/*` на backend       |
 | **PostgreSQL** | — (внутренн.) | Хранение заявок, поведения и услуг              |
 | **Backend**    | — (внутренн.) | FastAPI API (health, services, leads, admin CRUD)|
-| **pgAdmin**    | 5050          | Веб-панель для просмотра БД                      |
-| **Registry**   | 5000          | Локальный Docker Registry (для push образов)     |
+| **pgAdmin**    | отключён      | Веб-панель БД (сервис закомментирован в compose)  |
+| **Registry**   | 127.0.0.1:5000 | Локальный Docker Registry (push только с сервера)|
 | **Watchtower** | — (внутренн.) | Автоматическое обновление backend из Registry    |
 
 ---
@@ -123,8 +121,11 @@ bash setup.sh
 | Фронтенд  | `http://<IP-сервера>:8088`                   |
 | Админка   | `http://<IP-сервера>:8088/admin`             |
 | Swagger   | `http://<IP-сервера>:8088/api/docs`          |
-| pgAdmin   | `http://<IP-сервера>:5050`                   |
-| Registry  | `http://<IP-сервера>:5000/v2/_catalog`       |
+| Registry  | только с сервера: `curl -u registry:... http://127.0.0.1:5000/v2/_catalog` |
+
+> Прямые подключения к backend (:8000) и PostgreSQL (:5432) снаружи
+> закрыты: порты не публикуются → `connection refused`. Единая точка
+> входа — только nginx (:8088).
 
 ---
 
@@ -176,15 +177,16 @@ POSTGRES_USER=orders_user
 POSTGRES_PASSWORD=<СГЕНЕРИРУЙТЕ: openssl rand -hex 16>
 POSTGRES_DB=orders_db
 
-# --- pgAdmin ---
+# --- pgAdmin (ОТКЛЮЧЁН: сервис закомментирован в compose) ---
+# Переменные сохранены на случай возврата
 PGADMIN_EMAIL=admin@orders.com
 PGADMIN_PASSWORD=<СГЕНЕРИРУЙТЕ: openssl rand -hex 12>
 
-# --- Docker Registry ---
+# --- Docker Registry (loopback-only) ---
 REGISTRY_USER=registry
 REGISTRY_PASSWORD=<СГЕНЕРИРУЙТЕ: openssl rand -hex 12>
 REGISTRY_PORT=5000
-REGISTRY_HOST=<IP-или-домен-сервера>:5000   # Хост для тегирования образов
+REGISTRY_HOST=127.0.0.1:5000   # Loopback: не требует insecure-registries, снаружи порт закрыт
 
 # --- Watchtower ---
 WATCHTOWER_INTERVAL=300      # Интервал проверки (сек)
@@ -198,7 +200,10 @@ JWT_EXPIRE_MINUTES=720       # Срок жизни токена (минут, 720
 
 > **Примечание:** Если на сервере освободить порт 80, измените `NGINX_PORT=80`.
 
-### Подключение к pgAdmin
+### Подключение к pgAdmin (отключено)
+
+pgAdmin отключён в рамках политики «одна точка входа». Если сервис
+вернули в `docker-compose.yml` (блок закомментирован), подключение:
 
 1. Откройте `http://<IP>:5050`
 2. Логин: `admin@orders.com`, пароль: значение `PGADMIN_PASSWORD` из `.env`
@@ -211,83 +216,57 @@ JWT_EXPIRE_MINUTES=720       # Срок жизни токена (минут, 720
 
 ### Доступ к Registry
 
-**Проверка каталога (curl):**
-```bash
-curl.exe -u registry:<REGISTRY_PASSWORD из .env> \
-  http://<IP-сервера>:5000/v2/_catalog
-# → {"repositories":[]}
-```
+Registry публикуется только на `127.0.0.1:5000` — доступен только с самого
+сервера. Снаружи порт закрыт (curl с внешней машины → connection refused).
 
-**Проверка в браузере:**
+**Проверка каталога (на сервере):**
+```bash
+curl -u registry:<REGISTRY_PASSWORD из .env> \
+  http://127.0.0.1:5000/v2/_catalog
+# → {"repositories":["orders-backend"]}
 ```
-http://<IP-сервера>:5000/v2/          # → 200 OK (пустая страница)
-http://<IP-сервера>:5000/v2/_catalog  # → 401 (нужен Basic Auth)
-```
-> Браузеры не показывают окно Basic Auth на HTTP — используйте curl.
 
 ---
 
 ## 🔄 Цикл автодеплоя
 
-### 1. Настройка Docker Desktop (локальная машина)
+### 1. Registry теперь loopback-only
 
-**Docker Engine → Settings → daemon.json:**
-```json
-{
-  "builder": {
-    "gc": {
-      "defaultKeepStorage": "20GB",
-      "enabled": true
-    }
-  },
-  "experimental": false,
-  "insecure-registries": ["<IP-сервера>:5000"]
-}
-```
-→ Apply & Restart
+`REGISTRY_HOST=127.0.0.1:5000` в `.env` сервера. Docker-движок считает
+`127.0.0.0/8` небезопасным реестром по умолчанию — **ни daemon.json,
+ни insecure-registries больше не нужны** (правки server daemon всегда были
+неизбежны из-за HTTP-registry); локальная машина к registry не подключается.
 
-### 2. Login
+### 2. Login и push (на сервере)
 
 ```bash
-docker login <IP-сервера>:5000
+docker login 127.0.0.1:5000
 # Username: registry
 # Password: значение REGISTRY_PASSWORD из .env
-```
 
-### 3. Build → Push
-
-```bash
-# Собираем backend
+# Собираем и пушим backend (тег задаёт compose: ${REGISTRY_HOST}/orders-backend:latest)
 cd ~/projects/module_9_case_3_site_for_orders
-docker compose up -d --build backend
-
-# Тегирование (образ уже имеет имя registry)
-# В docker-compose.yml backend: image: ${REGISTRY_HOST}/orders-backend:latest
-# docker compose up сам тегует образ как <IP-сервера>:5000/orders-backend:latest
-
-# Push на сервер
-docker push <IP-сервера>:5000/orders-backend:latest
+docker compose up -d --build backend   # сразу пересоздаёт контейнер
+docker push 127.0.0.1:5000/orders-backend:latest   # для watchtower-цифры
 ```
 
-> 💡 Push с самого сервера (обычный `docker push` требует insecure-registries
-> в серверном daemon.json, который нельзя менять без root) можно сделать
-> вручную через Registry HTTP API — см. скрипт в истории коммитов
-> (`docker save` + загрузка blobs на `http://<IP>:5000/v2/<имя>/blobs/uploads/`).
+> 💡 Push с локальной (внешней) машины больше невозможен: порт 5000
+> не публикуется наружу. Если обновление backend'а делается с внешней
+> машины — `docker save` → `scp` → `docker load` на сервере, либо
+> git pull на сервере + `docker compose up -d --build backend`.
 
-### 4. Автообновление
+### 3. Автообновление
 
 Watchtower проверяет Registry каждые `WATCHTOWER_INTERVAL` секунд (по умолчанию 300).
-При обнаружении нового образа `orders-backend:latest` он:
-1. Скачивает новый образ из Registry
+При обнаружении нового образа `127.0.0.1:5000/orders-backend:latest` он:
+1. Скачивает новый образ из Registry (по loopback, без insecure-registries)
 2. Пересоздаёт контейнер `orders_backend`
-3. Nginx автоматически начинает проксировать на новый IP
+3. Nginx автоматически начинает проксировать на новый IP (resolver 127.0.0.11)
 
-> ⚠️ Серверный Docker daemon должен разрешать HTTP-registry:
-> в `/etc/docker/daemon.json` на **сервере** добавьте
-> `"insecure-registries": ["<IP-сервера>:5000"]` и перезапустите Docker
-> (`systemctl restart docker` — перезапустит все контейнеры!). Без этого
-> watchtower логирует `http: server gave HTTP response to HTTPS client`.
-> Альтернатива без root: пересборка вручную — `docker compose up -d --build backend`.
+> ⚠️ Устаревшая проблема (до перехода на loopback): watchtower не мог
+> тянуть HTTP-образ без `insecure-registries` на сервере (`http: server gave
+> HTTP response to HTTPS client`). С `REGISTRY_HOST=127.0.0.1:5000` это
+> исключено — Docker всегда считает localhost-registry небезопасным.
 
 Watchtower следит ТОЛЬКО за контейнерами с label
 `com.centurylinklabs.watchtower.enable=true` (лин в docker-compose.yml
@@ -299,30 +278,29 @@ Watchtower следит ТОЛЬКО за контейнерами с label
 
 ## 🛡 Безопасность
 
-### Сетевые隔离
+### Сетевая изоляция
 
 ```
-backend_net (internal: true)
-├── postgres:5432          ← только от backend
-├── backend:8000           ← только от nginx
-├── registry:5000          ← только от watchtower
-├── pgadmin:80             ← порт 5050 наружу
-└── watchtower:8080        ← только к docker.sock
-
-external_net
-├── registry:5000          ← порт 5000 наружу (docker push)
-├── pgadmin:80             ← порт 5050 наружу
+backend_net (internal: true — наружу/изнутри через хост запрещено)
+├── postgres:5432          ← только от backend (порты не публикуются)
+├── backend:8000           ← только от nginx (порты не публикуются)
+└── watchtower:8080        ← только к docker.sock и registry по loopback
 
 frontend
-├── nginx:80               ← порт 8088 наружу
+├── nginx:80               ← порт 8088 наружу (ЕДИНСТВЕННАЯ точка входа)
+
+default (compose)
+└── registry:5000          ← порт публикуется только на 127.0.0.1
 ```
 
 ### Политики
 
-1. **Postgres и backend не имеют публикуемых портов** — доступ только через Docker DNS внутри `backend_net`
-2. **Nginx — единственная точка входа** — весь трафик `frontend → backend` идёт через него
-3. **Watchtower не видит сеть наружу** — только docker.sock и registry по внутренней сети
-4. **pgAdmin и Registry** — открыты по требованию администратора, не являются частью внешнего API
+1. **Postgres и backend не имеют публикуемых портов** — прямое подключение
+   снаружи/с хоста = `connection refused`; доступ только через Docker DNS внутри `backend_net`
+2. **Nginx — единственная точка входа** (порт 8088) — весь трафик `frontend → backend` идёт через него
+3. **pgAdmin отключён** (сервис закомментирован в compose) — порт 5050 снаружи закрыт
+4. **Registry закрыт снаружи** — `127.0.0.1:5000`: push/login только с самого сервера
+5. **Watchtower не видит сеть наружу** — только docker.sock и registry по loopback
 
 ### Данные
 
@@ -447,16 +425,16 @@ environment:
   DOCKER_API_VERSION: "1.40"
 ```
 
-### 4. pgAdmin не запускается (`admin@orders.local` error)
+### 4. pgAdmin
 
-`.local` домен зарезервирован RFC 2606. Используйте `.com` или `.ru` в `PGADMIN_EMAIL`.
+Сервис отключён (политика «одна точка входа»). Раздел сохранён на случай
+возврата: `.local` домен зарезервирован RFC 2606 — используйте `.com`/`.ru`.
 
 ### 5. `docker push` не проходит (timeout)
 
-Добавьте insecure-registry в Docker Desktop:
-```json
-"insecure-registries": ["<IP-сервера>:5000"]
-```
+Теперь push работает только с самого сервера на `127.0.0.1:5000` —
+на локальной машине push к серверу больше не поддерживается (порт закрыт
+наружу). Обновления: git pull на сервере или `docker save`+`scp`+`docker load`.
 
 ### 6. Nginx не резолвит имя backend
 
@@ -469,9 +447,8 @@ environment:
 - Docker 29.0+
 - Docker Compose v2
 - 2 vCPU, 2 GB RAM минимум
-- Порт 8088 свободен на хосте
-- Порт 5000 свободен на хосте
-- Порт 5050 свободен на хосте
+- Порт 8088 свободен на хосте (единственная точка входа)
+- Порт 127.0.0.1:5000 свободен на самом сервере (registry, только loopback)
 - SSH-доступ к серверу
 
 ---
