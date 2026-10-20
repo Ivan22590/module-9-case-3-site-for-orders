@@ -12,6 +12,10 @@
 - [Цикл автодеплоя](#цикл-автодеплоя)
 - [Безопасность](#безопасность)
 - [Структура проекта](#структура-проекта)
+- [Backend: архитектура приложения](#backend-архитектура-приложения)
+- [API Reference](#api-reference)
+- [База данных](#база-данных)
+- [Фронтенд](#фронтенд)
 - [Переменные окружения](#переменные-окружения)
 - [Устранение неполадок](#устранение-неполадок)
 - [Требования](#требования)
@@ -37,16 +41,16 @@
               │     │  (HTML/CSS/ │
               │     │   JS)       │
               │     └────┬────────┘
-              │          │ proxy /api/ → backend:8000
-              │     ┌────▼────────┐
-              │     │  Backend    │← FastAPI (health + POST /leads)
-              │     │  :8000      │
-              │     └────┬────────┘
-              │          │
-              │     ┌────▼────────┐
-              │     │ PostgreSQL  │← База данных (таблица leads)
-              │     │  :5432      │
-              │     └─────────────┘
+               │          │ proxy /api/ → backend:8000
+               │     ┌────▼────────┐
+               │     │  Backend    │← FastAPI (health + POST /leads + admin CRUD)
+               │     │  :8000      │   (core, models, schemas, routes)
+               │     └────┬────────┘
+               │          │
+               │     ┌────▼────────┐
+               │     │ PostgreSQL  │← База данных (leads, lead_behavior, services)
+               │     │  :5432      │
+               │     └─────────────┘
               │
               │ internal network (backend_net)
               │ ┌──────────────┐  ┌──────────────┐
@@ -84,8 +88,8 @@
 | Сервис         | Порт снаружи | Назначение                                       |
 |----------------|---------------|--------------------------------------------------|
 | **Nginx**      | 8088          | Статика фронта + прокси `/api/*` на backend       |
-| **PostgreSQL** | — (внутренн.) | Хранение заявок                                 |
-| **Backend**    | — (внутренн.) | FastAPI API (`/health`, `/leads`)                |
+| **PostgreSQL** | — (внутренн.) | Хранение заявок, поведения и услуг              |
+| **Backend**    | — (внутренн.) | FastAPI API (health, services, leads, admin CRUD)|
 | **pgAdmin**    | 5050          | Веб-панель для просмотра БД                      |
 | **Registry**   | 5000          | Локальный Docker Registry (для push образов)     |
 | **Watchtower** | — (внутренн.) | Автоматическое обновление backend из Registry    |
@@ -119,6 +123,25 @@ bash setup.sh
 | Фронтенд  | `http://<IP-сервера>:8088`                   |
 | pgAdmin   | `http://<IP-сервера>:5050`                   |
 | Registry  | `http://<IP-сервера>:5000/v2/_catalog`       |
+
+---
+
+## 🎨 Фронтенд
+
+Страница заявки в элитном стиле (белая тема, шрифт Inter, анимации):
+
+- **Hero-секция** — представление бизнеса (градиент, бейдж, заголовок)
+- **Секции формы** — разделены линиями, анимация появления
+- **Динамическая подгрузка услуг** — `GET /api/services` → select с продуктами
+- **Ползунок бюджета** — один ползунок, шаг 1000 ₽, диапазон подстраивается под выбранную услугу
+- **Сбор метрик поведения** — время на странице, клики, зависания курсора, возвраты, глубина скролла, UTM, тех-информация
+- **Единый пакет** — `{lead: {...}, behavior: {...}}` → `POST /api/leads`
+
+### Swagger UI
+
+Доступен через nginx: `http://<IP-сервера>:8088/api/docs`
+
+Для работы Swagger UI добавлена директива `root_path="/api"` в FastAPI — все пути в OpenAPI spec будут содержать `/api/...`, что позволяет корректно генерировать запросы через nginx-прокси.
 
 ---
 
@@ -296,7 +319,23 @@ module_9_case_3_site_for_orders/
 │   ├── requirements.txt    # fastapi, sqlalchemy, psycopg3, pydantic
 │   └── app/
 │       ├── __init__.py
-│       └── main.py         # /health + POST /api/leads
+│       ├── main.py         # Точка входа, api_router, lifespan
+│       ├── core/
+│       │   ├── __init__.py
+│       │   └── db.py       # Движок SQLAlchemy, SessionLocal, Base, get_db
+│       ├── models/
+│       │   ├── __init__.py
+│       │   ├── service.py  # Service + CRUD (услуги, диапазоны цен)
+│       │   └── lead.py     # Lead + LeadBehavior (1:1) + CRUD
+│       ├── schemas/
+│       │   ├── __init__.py
+│       │   ├── service.py  # ServiceCreate/Update/Out
+│       │   └── lead.py     # LeadPackage/LeadOut/BehaviorOut
+│       └── routes/
+│           ├── __init__.py
+│           ├── public.py   # GET /health, GET /services
+│           ├── leads.py    # POST/GET/DELETE /leads
+│           └── admin.py    # CRUD /admin/services
 │
 ├── registry/
 │   ├── auth/               # htpasswd (создаёт setup.sh)
@@ -304,6 +343,45 @@ module_9_case_3_site_for_orders/
 │
 └── scripts/                # Вспомогательные скрипты (по необходимости)
 ```
+
+## 🏛 Backend: архитектура приложения
+
+Backend реализован по классической слоистой архитектуре FastAPI:
+
+```
+main.py (точка входа)
+  └── api_router (объединяет роуты)
+        ├── public.py   ← GET /health, GET /services
+        ├── leads.py    ← POST/GET/DELETE /leads
+        └── admin.py    ← CRUD /admin/services
+              ↑
+         Схемы (schemas/)
+              ↑
+         Модели (models/) — SQLAlchemy + CRUD-функции
+              ↑
+         Ядро (core/) — движок БД, get_db
+```
+
+**Ядро (`core/db.py`)**
+- Подключение к PostgreSQL через `DATABASE_URL` (из docker-compose)
+- Движок `create_engine`, `SessionLocal`, базовый класс `Base`
+- Зависимость `get_db()` для FastAPI
+
+**Модели (`models/`)**
+- `service.py` — таблица `services` (услуги + диапазоны цен), CRUD-функции `create_service`, `list_services`, `update_service`, `delete_service`
+- `lead.py` — таблица `leads` (заявки) + `lead_behavior` (поведение 1:1), CRUD-функции `create_lead_with_behavior`, `list_leads`, `delete_lead`
+- Каждая модель содержит SQL-код для создания таблицы в докстринге
+
+**Схемы (`schemas/`)**
+- Pydantic-схемы для валидации входящих данных и форматирования ответов
+- `LeadPackage` — единый пакет `{lead: {...}, behavior: {...}}`
+
+**Роуты (`routes/`)**
+- `public.py` — публичные эндпоинты для фронтенда
+- `leads.py` — приём заявок единым пакетом, чтение, удаление
+- `admin.py` — CRUD услуг (для администратора через Swagger)
+
+**Миграция** — при старте `main.py` переименовывает старую MVP-таблицу `leads` в `leads_legacy_v1` и создаёт новые таблицы через `Base.metadata.create_all()`.
 
 ---
 
@@ -359,74 +437,207 @@ environment:
 
 ## 📝 API Reference
 
-### `GET /health` (через nginx: `/api/health`)
+Все эндпоинты доступны через nginx по префиксу `/api/`.
+
+### `GET /api/health`
 
 Проверка живости backend.
 
-**Response:**
+**Response (200):**
 ```json
 {"status": "ok"}
 ```
 
+### `GET /api/services`
+
+Список активных услуг — фронтенд строит интерфейс по этому списку.
+
+**Response (200):**
+```json
+[
+  {
+    "id": 1,
+    "name": "Полировка",
+    "description": "Полировка кузова",
+    "price_min": 5000,
+    "price_max": 15000,
+    "is_active": true,
+    "created_at": "2026-10-20T12:59:59Z"
+  }
+]
+```
+
 ### `POST /api/leads`
 
-Создание заявки.
+Создание заявки единым пакетом: данные формы + поведение пользователя.
 
 **Body:**
 ```json
 {
-  "contact": "+79001234567",
-  "business": "Интернет-магазин",
-  "budget": "100-300k",
-  "channel": "telegram",
-  "comment": "Нужен редизайн до 1 ноября",
-  "metrics": {
-    "referrer": "https://google.com",
-    "utm": { "source": "cpc", "medium": "yandex" },
-    "landing": "https://site.com/landing",
-    "submitted_at": "2026-10-20T10:00:00Z"
+  "lead": {
+    "contact": "+79001234567",
+    "first_name": "Иван",
+    "last_name": "Петров",
+    "middle_name": "Иванович",
+    "niche": "Автосервис",
+    "company_size": "small",
+    "role": "employee",
+    "budget": "5000–15000 ₽",
+    "product_interest": "Полировка",
+    "deadline": "до конца квартала",
+    "contact_channel": "telegram",
+    "contact_time": "будни 10–18",
+    "comment": "Тест"
   },
-  "tech": {
+  "behavior": {
+    "time_on_page_seconds": 120,
+    "clicks_count": 42,
+    "cursor_idle_seconds": 15,
+    "cursor_hover_stalls": 8,
+    "returns_count": 2,
+    "scroll_depth_percent": 85,
     "user_agent": "Mozilla/5.0...",
-    "language": "ru",
-    "screen": { "w": 1920, "h": 1080 },
+    "referrer": "https://google.com",
+    "utm_source": "yandex",
+    "utm_medium": "cpc",
+    "screen_width": 1920,
+    "screen_height": 1080,
     "timezone": "Europe/Moscow"
   }
 }
 ```
 
-**Response (200):**
+**Response (201):**
 ```json
-{"ok": true, "message": "Lead saved"}
+{
+  "id": 1,
+  "contact": "+79001234567",
+  "first_name": "Иван",
+  "last_name": "Петров",
+  "niche": "Автосервис",
+  "budget": "5000–15000 ₽",
+  "behavior": {
+    "lead_id": 1,
+    "time_on_page_seconds": 120,
+    "clicks_count": 42,
+    "returns_count": 2,
+    "scroll_depth_percent": 85
+  },
+  "created_at": "2026-10-20T12:59:59Z"
+}
 ```
 
-**Response (500):**
+### `GET /api/leads`
+
+Список заявок (новые первыми).
+
+**Query parameters:** `skip=0`, `limit=100`
+
+### `GET /api/leads/{lead_id}`
+
+Заявка по ID, включая поведение.
+
+### `DELETE /api/leads/{lead_id}`
+
+Удаление заявки (поведение удаляется по CASCADE).
+
+### `POST /api/admin/services`
+
+Создание услуги (через Swagger UI).
+
+**Body:**
 ```json
-{"detail": "DB error: ..."}
+{
+  "name": "Керамика",
+  "description": "Керамическое покрытие",
+  "price_min": 20000,
+  "price_max": 60000
+}
 ```
+
+### `GET /api/admin/services`
+
+Список всех услуг (включая отключённые, если `include_inactive=true`).
+
+### `PATCH /api/admin/services/{service_id}`
+
+Частичное обновление услуги.
+
+### `DELETE /api/admin/services/{service_id}`
+
+Удаление услуги.
 
 ---
 
 ## 📊 База данных
 
-**Таблица `leads`:**
+**Таблица `leads` — заявки клиентов:**
 
-| Колонка    | Тип        | Описание                    |
-|------------|------------|-----------------------------|
-| id         | SERIAL     | Автоинкремент               |
-| contact    | TEXT       | Телефон / email             |
-| business   | TEXT       | Информация о бизнесе        |
-| budget     | TEXT       | Бюджет                      |
-| channel    | TEXT       | Канал связи                 |
-| comment    | TEXT       | Комментарий                 |
-| metrics    | JSONB      | UTM, реферер, тайминг       |
-| tech       | JSONB      | UA, экран, язык, TZ         |
-| created_at | TIMESTAMPTZ| Дата создания               |
+| Колонка         | Тип         | Описание                |
+|-----------------|-------------|-------------------------|
+| id              | SERIAL      | Первичный ключ          |
+| first_name      | TEXT        | Имя                     |
+| last_name       | TEXT        | Фамилия                 |
+| middle_name     | TEXT        | Отчество                |
+| contact         | TEXT        | Телефон / email         |
+| business_info   | TEXT        | Информация о бизнесе    |
+| niche           | TEXT        | Ниша бизнеса            |
+| company_size    | TEXT        | Размер компании         |
+| role            | TEXT        | Сотрудник / Руководитель|
+| task_type       | TEXT        | Тип задачи              |
+| product_interest| TEXT        | Интересующий продукт    |
+| budget          | TEXT        | Бюджет (строка)         |
+| deadline        | TEXT        | Срок результата         |
+| contact_channel | TEXT        | Способ связи            |
+| contact_time    | TEXT        | Удобное время связи     |
+| comment         | TEXT        | Комментарий             |
+| created_at      | TIMESTAMPTZ | Дата создания           |
+
+**Таблица `lead_behavior` — поведение пользователя (1:1 с Lead):**
+
+| Колонка               | Тип         | Описание                  |
+|-----------------------|-------------|---------------------------|
+| lead_id               | INTEGER PK  | FK на leads.id (CASCADE)  |
+| time_on_page_seconds  | INTEGER     | Время на странице (сек)   |
+| clicks_count          | INTEGER     | Количество кликов         |
+| cursor_idle_seconds   | INTEGER     | Время бездействия курсора |
+| cursor_hover_stalls   | INTEGER     | Зависания курсора         |
+| returns_count         | INTEGER     | Возвраты на страницу      |
+| scroll_depth_percent  | INTEGER     | Глубина скролла (%)       |
+| user_agent            | TEXT        | Браузер                   |
+| referrer              | TEXT        | Источник                  |
+| utm_source            | TEXT        | UTM source                |
+| utm_medium            | TEXT        | UTM medium                |
+| utm_campaign          | TEXT        | UTM campaign              |
+| screen_width          | INTEGER     | Ширина экрана             |
+| screen_height         | INTEGER     | Высота экрана             |
+| timezone              | TEXT        | Часовой пояс              |
+| recorded_at           | TIMESTAMPTZ | Запись                    |
+
+**Таблица `services` — услуги (админ-данные):**
+
+| Колонка     | Тип         | Описание              |
+|-------------|-------------|-----------------------|
+| id          | SERIAL      | Первичный ключ        |
+| name        | TEXT UNIQUE | Название услуги       |
+| description | TEXT        | Описание              |
+| price_min   | INTEGER     | Минимальная цена      |
+| price_max   | INTEGER     | Максимальная цена     |
+| is_active   | BOOLEAN     | Активна/неактивна     |
+| created_at  | TIMESTAMPTZ | Дата создания         |
 
 **SQL для просмотра:**
 ```sql
-SELECT id, contact, budget, channel, created_at
-FROM leads ORDER BY created_at DESC;
+-- Заявки с поведением
+SELECT l.id, l.first_name, l.last_name, l.niche, l.budget,
+       b.time_on_page_seconds, b.clicks_count, b.returns_count
+FROM leads l
+LEFT JOIN lead_behavior b ON l.id = b.lead_id
+ORDER BY l.created_at DESC;
+
+-- Услуги
+SELECT id, name, price_min, price_max, is_active
+FROM services ORDER BY id;
 ```
 
 ---
